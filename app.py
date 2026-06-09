@@ -67,4 +67,4 @@ with gr.Blocks() as demo:
     btn.click(handle_query, inp, [out1, out2])
     inp.submit(handle_query, inp, [out1, out2])
 
-demo.launch()
+demo.launch(share=True)
