@@ -52,50 +52,72 @@ def clean_text(text: str) -> str:
 def split_into_chunks(text: str, chunk_size: int = CHUNK_SIZE,
                       overlap: int = OVERLAP) -> list[str]:
     """
-    Split text into overlapping character-level chunks.
-    Tries to break at sentence boundaries (. ! ?) or spaces so words aren't cut.
+    Paragraph-aware chunker: splits on blank lines first, then groups whole
+    paragraphs into chunks that stay within CHUNK_MIN–CHUNK_MAX characters.
+
+    Overlap is implemented by re-including the tail paragraph(s) from the
+    previous chunk whose combined length is closest to `overlap` chars.
+    Because overlap is always a whole paragraph, every chunk starts and ends
+    at a clean paragraph (and therefore sentence) boundary.
+
+    Edge cases:
+    - A single paragraph longer than CHUNK_MAX is emitted as its own chunk
+      so no content is ever dropped.
+    - A paragraph shorter than CHUNK_MIN is grouped with its neighbours until
+      the minimum is met.
     """
-    chunks = []
-    start = 0
-    length = len(text)
+    # ── 1. Split into paragraphs ──────────────────────────────────────────────
+    paragraphs = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
+    if not paragraphs:
+        return []
 
-    while start < length:
-        end = min(start + chunk_size, length)
+    chunks: list[str] = []
+    i = 0  # index into paragraphs[]
 
-        # If we're not at the end, try to break at a sentence boundary
-        if end < length:
-            # Look for the last sentence-ending punctuation in the window
-            window = text[start:end]
-            # Search backwards for ". ", "! ", "? "
-            match = None
-            for m in re.finditer(r"[.!?]\s", window):
-                match = m
-            if match:
-                end = start + match.end()
-            else:
-                # Fall back to last space to avoid cutting mid-word
-                last_space = text.rfind(" ", start, end)
-                if last_space > start:
-                    end = last_space + 1
+    while i < len(paragraphs):
+        chunk_paras: list[str] = []
+        length = 0
+        j = i
 
-        chunk = text[start:end].strip()
+        # ── 2. Greedily accumulate paragraphs ─────────────────────────────────
+        while j < len(paragraphs):
+            para = paragraphs[j]
+            # "\n\n" separator adds 2 chars between paragraphs
+            sep = 2 if chunk_paras else 0
+            new_length = length + sep + len(para)
 
-        # Only keep chunks within the allowed size range
-        if len(chunk) >= CHUNK_MIN or start == 0:  # always keep first chunk
-            chunks.append(chunk)
+            # Stop only when we've met the minimum AND adding this paragraph
+            # would push us past the maximum.  If we haven't met the minimum
+            # yet, keep going even past CHUNK_MAX (avoids losing tiny files).
+            if chunk_paras and new_length > CHUNK_MAX and length >= CHUNK_MIN:
+                break
 
-        # Advance start by (chunk_size - overlap), land after a word boundary
-        next_start = end - overlap
-        # Snap forward to next space so overlap doesn't start mid-word
-        snap = text.find(" ", next_start)
-        if snap != -1 and snap < end:
-            next_start = snap + 1
+            chunk_paras.append(para)
+            length = new_length
+            j += 1
 
-        # Safety: always move forward
-        if next_start <= start:
-            next_start = start + 1
+            # Once we've hit the target size (and cleared the minimum) we can
+            # stop — no need to pack the chunk tighter.
+            if length >= chunk_size and length >= CHUNK_MIN:
+                break
 
-        start = next_start
+        chunks.append("\n\n".join(chunk_paras))
+
+        # ── 3. Determine overlap for next chunk ───────────────────────────────
+        # Walk backwards through chunk_paras, accumulating paragraphs until
+        # their combined length meets or exceeds `overlap`.  Those paragraphs
+        # become the opening context of the next chunk.
+        overlap_count = 0
+        overlap_len = 0
+        for para in reversed(chunk_paras):
+            overlap_len += len(para)
+            overlap_count += 1
+            if overlap_len >= overlap:
+                break
+
+        # Next chunk starts `overlap_count` paragraphs before j, but must
+        # always advance at least one paragraph past i to prevent infinite loops.
+        i = max(i + 1, j - overlap_count)
 
     return chunks
 
