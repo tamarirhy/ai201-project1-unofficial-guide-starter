@@ -1,8 +1,8 @@
 """
 chunk_texts.py
-Stage 2 of the RAG pipeline: load .txt files from data/, clean, and chunk.
+Stage 1 & 2 of the RAG pipeline: load .txt files from data/, clean, and chunk.
 
-Chunk size:  500–800 characters (target ~600)
+Chunk size:  600–900 characters (target ~700)
 Overlap:     100–150 characters (target ~100)
 Output:      list of dicts with keys: source, chunk_index, text
 """
@@ -15,9 +15,9 @@ from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DATA_DIR    = "data"          # folder containing .txt files
-CHUNK_SIZE  = 600             # target chunk length (chars)
-CHUNK_MIN   = 500             # hard minimum
-CHUNK_MAX   = 800             # hard maximum
+CHUNK_SIZE  = 700             # target chunk length (chars)
+CHUNK_MIN   = 600             # hard minimum
+CHUNK_MAX   = 900             # hard maximum
 OVERLAP     = 100             # overlap between consecutive chunks
 SAMPLE_N    = 5               # number of sample chunks to print
 
@@ -42,6 +42,13 @@ def clean_text(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     # Collapse 3+ newlines into 2 (preserve paragraph breaks)
     text = re.sub(r"\n{3,}", "\n\n", text)
+    #Remove common source / URL boilerplate
+    text = re.sub(r"Source:.*", "", text)
+    text = re.sub(r"URL:.*", "", text)
+    text = re.sub(r"https?://\S+", "", text)
+    #Remove review metadata lines
+    text = re.sub(r"Review by.*", "", text)
+    text = re.sub(r"\d+\.\d+\s*rating.*", "", text, flags=re.IGNORECASE)
     # Strip leading/trailing whitespace from each line
     lines = [line.strip() for line in text.splitlines()]
     text = "\n".join(lines)
